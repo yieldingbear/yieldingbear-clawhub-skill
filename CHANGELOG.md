@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.0 — 2026-09-01
+
+### Added
+- Full install walkthrough: signup → Pro / credits / free → live model library with $/1M.
+- CLI signup offer path: `$10 off Pro × first 3 months` via `https://yieldingbear.com/offer/cli10x3`.
+- `yb.sh set-model`, `yb.sh explain`, richer `models` (`--paid` / `--routers`) + routing doctor check.
+- Honest routing copy: high/mid/free cascade, live pricing, cache + optional bandit (when enabled).
+
+### Fixed
+- Chat Authorization headers use real `$KEY` / `$api_key` (broken `***` placeholder removed).
+
+### Notes
+- Referral `$20` first-month stays separate; never stacks with CLI `$10×3`.
+
 ## 2.1.0 — 2026-09-01
 
 ### Changed

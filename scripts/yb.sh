@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Yielding Bear — doctor/status/models/smoke CLI (ClawHub skill helper)
-# Usage: yb.sh <doctor|status|models|smoke|install> [--free]
+# Yielding Bear — doctor/status/models/smoke/set-model/explain CLI
+# Usage: yb.sh <cmd> …
 set -euo pipefail
 
 SITE_URL="${YIELDINGBEAR_SITE_URL:-https://yieldingbear.com}"
 BASE_URL="${YIELDINGBEAR_BASE_URL:-${SITE_URL}/api/v1}"
-VERSION="2.1.0"
+VERSION="2.2.0"
 
 resolve_paths() {
   if [[ -n "${HERMES_HOME:-}" || -d "${HOME}/.hermes" ]]; then
@@ -62,6 +62,7 @@ print("  model:   ", c.get("default_model") or "(none)")
 print("  cfg ver: ", c.get("version") or "(none)")
 fb = c.get("fallback_models") or []
 print("  fallback:", ", ".join(fb) if fb else "(none)")
+print("  offer:   ", c.get("signup_offer") or "(none)")
 PY
     fi
   else
@@ -83,28 +84,52 @@ import json
 j = json.load(open("/tmp/yb-doc-models.json"))
 rows = j.get("yieldingbear", {}).get("data") or j.get("data") or []
 free = [m for m in rows if m.get("is_free") is True]
+routers = [m for m in rows if m.get("is_virtual") or str(m.get("id","")).startswith("yieldingbear/")]
 paid_free_name = [
     m for m in rows
     if m.get("is_free") is not True
     and "(Free)" in str(m.get("name") or m.get("display_name") or "")
 ]
-inactive_free = [m for m in free if m.get("is_active") is False]
-print(f"  OK  catalog rows={len(rows)} free={len(free)} inactive_free={len(inactive_free)}")
+print(f"  OK  catalog rows={len(rows)} free={len(free)} routers={len(routers)}")
 if paid_free_name:
     ids = ", ".join(m.get("id", "?") for m in paid_free_name[:8])
     print("  WARN display '(Free)' on non-free:", ids)
-if inactive_free:
-    ids = ", ".join(m.get("id", "?") for m in inactive_free[:8])
-    print("  WARN inactive free:", ids)
 PY
     fi
   else
     echo "  FAIL GET /api/v1/models HTTP $code"
   fi
 
+  # Routing health (public)
+  rcode="$(curl -sS -o /tmp/yb-doc-route.json -w '%{http_code}' -m 15 \
+    -H 'Accept: application/json' "${SITE_URL}/api/health/grizzly-routing" 2>/dev/null || echo 000)"
+  if [[ "$rcode" == "200" ]]; then
+    if command -v python3 >/dev/null 2>&1; then
+      python3 <<'PY' 2>/dev/null || true
+import json
+j=json.load(open("/tmp/yb-doc-route.json"))
+ok = j.get("ok")
+tiers = j.get("tiers") or {}
+def mid(t):
+    x = tiers.get(t) or {}
+    return x.get("model") or "?"
+print(f"  OK  grizzly-routing ok={ok} high={mid('high')} mid={mid('mid')} low={mid('low')}")
+for t in ("high","mid","low"):
+    x = tiers.get(t) or {}
+    if x:
+        print(f"       {t}: free={x.get('is_free')} in={x.get('input_per_mtok_usd')} out={x.get('output_per_mtok_usd')} ok={x.get('ok')}")
+PY
+    else
+      echo "  OK  GET /api/health/grizzly-routing ($rcode)"
+    fi
+  else
+    echo "  WARN routing health HTTP $rcode (non-blocking)"
+  fi
+
   load_key
   if [[ -z "$KEY" ]]; then
     echo "  SKIP chat (no API key) — set YIELDINGBEAR_API_KEY or run install"
+    rm -f /tmp/yb-doc-models.json /tmp/yb-doc-route.json 2>/dev/null || true
     return 0
   fi
   free_model="liquid/lfm-2.5-2.6b"
@@ -121,12 +146,22 @@ PY
     502) echo "  FAIL upstream gateway ($code) — LiteLLM/proxy degraded; key+config may still be valid" ;;
     *) echo "  WARN chat HTTP $code" ;;
   esac
-  rm -f /tmp/yb-doc-models.json /tmp/yb-doc-chat.json 2>/dev/null || true
+  rm -f /tmp/yb-doc-models.json /tmp/yb-doc-chat.json /tmp/yb-doc-route.json 2>/dev/null || true
 }
 
 cmd_models() {
   free_only=0
-  [[ "${1:-}" == "--free" ]] && free_only=1
+  paid_only=0
+  routers_only=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --free) free_only=1 ;;
+      --paid) paid_only=1 ;;
+      --routers) routers_only=1 ;;
+      *) ;;
+    esac
+    shift || true
+  done
   tmp="$(mktemp -t yb-models.XXXXXX 2>/dev/null || echo /tmp/yb-models-$$.json)"
   code="$(curl -sS -o "$tmp" -w '%{http_code}' -m 20 \
     -H 'Accept: application/json' "${SITE_URL}/api/v1/models" 2>/dev/null || echo 000)"
@@ -135,33 +170,55 @@ cmd_models() {
     rm -f "$tmp" 2>/dev/null || true
     exit 1
   fi
-  FREE_ONLY="$free_only" python3 - "$tmp" <<'PY'
+  FREE_ONLY="$free_only" PAID_ONLY="$paid_only" ROUTERS_ONLY="$routers_only" python3 - "$tmp" <<'PY'
 import json, os, sys
 path = sys.argv[1]
 free_only = os.environ.get("FREE_ONLY") == "1"
+paid_only = os.environ.get("PAID_ONLY") == "1"
+routers_only = os.environ.get("ROUTERS_ONLY") == "1"
 j = json.load(open(path))
 rows = j.get("yieldingbear", {}).get("data") or j.get("data") or []
 rows = sorted(
     rows,
     key=lambda m: (
+        0 if (m.get("is_virtual") or str(m.get("id") or "").startswith("yieldingbear/")) else 1,
         0 if m.get("is_free") else 1,
         0 if m.get("is_active", True) else 1,
         str(m.get("id") or ""),
     ),
 )
 n = 0
+print("id\ttags\t$/1M in→out\tname")
 for m in rows:
-    if free_only and not m.get("is_free"):
-        continue
     mid = m.get("id") or "?"
+    is_free = m.get("is_free") is True
+    is_router = m.get("is_virtual") is True or str(mid).startswith("yieldingbear/")
+    if free_only and not is_free:
+        continue
+    if paid_only and is_free:
+        continue
+    if routers_only and not is_router:
+        continue
     tags = []
-    tags.append("free" if m.get("is_free") else "paid")
+    tags.append("free" if is_free else "paid")
     if m.get("is_active") is False:
         tags.append("inactive")
-    if m.get("is_virtual") or str(mid).startswith("yieldingbear/"):
+    if is_router:
         tags.append("router")
+    pr = m.get("pricing") or {}
+    try:
+        inp = float(pr.get("input_per_mtok_usd") or 0)
+        out = float(pr.get("output_per_mtok_usd") or 0)
+    except Exception:
+        inp = out = 0.0
+    if is_free:
+        price = "0/0"
+    elif is_router and inp == 0 and out == 0:
+        price = "routed"
+    else:
+        price = f"{inp:g}/{out:g}"
     name = m.get("name") or m.get("display_name") or ""
-    print(f"{mid}\t[{','.join(tags)}]\t{name}")
+    print(f"{mid}\t[{','.join(tags)}]\t{price}\t{name}")
     n += 1
 print(f"# {n} models", file=sys.stderr)
 PY
@@ -201,6 +258,99 @@ PY
   rm -f /tmp/yb-smoke.json 2>/dev/null || true
 }
 
+cmd_set_model() {
+  resolve_paths
+  mid="${1:-}"
+  if [[ -z "$mid" ]]; then
+    echo "Usage: yb.sh set-model <model_id>" >&2
+    exit 1
+  fi
+  mkdir -p "$(dirname "$CONFIG_FILE")" 2>/dev/null || true
+  if [[ -f "$CONFIG_FILE" ]] && command -v python3 >/dev/null 2>&1; then
+    python3 - "$CONFIG_FILE" "$mid" <<'PY'
+import json, sys
+path, mid = sys.argv[1], sys.argv[2]
+try:
+    c = json.load(open(path))
+except Exception:
+    c = {"version": "2.2.0"}
+c["default_model"] = mid
+json.dump(c, open(path, "w"), indent=2)
+print("updated", path)
+PY
+  else
+    cat > "$CONFIG_FILE" <<EOF
+{
+  "version": "${VERSION}",
+  "base_url": "${BASE_URL}",
+  "default_model": "${mid}",
+  "key_file": "${KEY_FILE}"
+}
+EOF
+  fi
+  chmod 600 "$CONFIG_FILE" 2>/dev/null || true
+  if [[ -f "$ENV_FILE" ]]; then
+    if grep -q 'YIELDINGBEAR_DEFAULT_MODEL=' "$ENV_FILE" 2>/dev/null; then
+      # portable-ish rewrite
+      tmp="$(mktemp)"
+      sed "s|^export YIELDINGBEAR_DEFAULT_MODEL=.*|export YIELDINGBEAR_DEFAULT_MODEL=\"${mid}\"|" "$ENV_FILE" > "$tmp"
+      mv "$tmp" "$ENV_FILE"
+      chmod 600 "$ENV_FILE" 2>/dev/null || true
+    else
+      echo "export YIELDINGBEAR_DEFAULT_MODEL=\"${mid}\"" >> "$ENV_FILE"
+    fi
+  fi
+  echo "default_model → ${mid}"
+}
+
+cmd_explain() {
+  cat <<EOF
+Yielding Bear routing (confirmed gateway behavior)
+
+  Virtual model: yieldingbear/grizzly-1.0g-pro
+  • Classifies prompt reasoning need → high / mid / low
+  • Picks cost-aware defaults (Pro routes):
+      high → frontier reasoner (e.g. Claude Sonnet-class)
+      mid  → fast cheap (e.g. Gemini Flash-class)
+      low  → free/active nano when available (soft-fail → mid)
+  • Live I/O \$/1M from model_config drives billing + savings baseline
+  • Optional: semantic response cache + prompt-cache flags (server)
+  • Optional: Thompson-sampling bandit over tier picks when enabled
+    (self-improves from outcomes — not a guarantee every account)
+
+  Free path: pick any is_free catalog model or low tier via Grizzly.
+  Paid path: wallet credits or Grizzly Pro (\$99/mo).
+
+  CLI signup offer: \$10 off Pro first 3 months (\$89→\$99)
+    open ${SITE_URL}/offer/cli10x3
+  Referral (bound only): \$20 off first Pro month (~\$79 once)
+    — never stacked with CLI offer.
+
+  Commands:
+    yb.sh models [--free|--paid|--routers]
+    yb.sh set-model <id>
+    yb.sh doctor
+    yb.sh smoke [model]
+EOF
+  rcode="$(curl -sS -o /tmp/yb-explain-route.json -w '%{http_code}' -m 12 \
+    "${SITE_URL}/api/health/grizzly-routing" 2>/dev/null || echo 000)"
+  if [[ "$rcode" == "200" ]] && command -v python3 >/dev/null 2>&1; then
+    echo ""
+    echo "Live routes:"
+    python3 <<'PY' 2>/dev/null || true
+import json
+j=json.load(open("/tmp/yb-explain-route.json"))
+tiers=j.get("tiers") or {}
+for k in ("high","mid","low"):
+    x=tiers.get(k) or {}
+    if x.get("model"):
+        print(f"  {k}: {x.get('model')}  (free={x.get('is_free')} ${x.get('input_per_mtok_usd')}/${x.get('output_per_mtok_usd')} per 1M)")
+print("  ok:", j.get("ok"), "checked:", j.get("checked_at"))
+PY
+  fi
+  rm -f /tmp/yb-explain-route.json 2>/dev/null || true
+}
+
 cmd_install() {
   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   exec bash "${SCRIPT_DIR}/install.sh" "$@"
@@ -210,11 +360,13 @@ usage() {
   cat <<EOF
 yb.sh v${VERSION} — Yielding Bear skill helper
 
-  yb.sh install          Run interactive installer
-  yb.sh status           Show runtime paths + key
-  yb.sh doctor           Catalog + key + chat health
-  yb.sh models [--free]  List live catalog
-  yb.sh smoke [model]    Tiny chat completion
+  yb.sh install              Interactive full setup
+  yb.sh status               Paths + key + default model
+  yb.sh doctor               Catalog + routing + chat health
+  yb.sh models [--free|--paid|--routers]
+  yb.sh set-model <id>       Switch default model in config
+  yb.sh explain              Routing / cache / offers (honest)
+  yb.sh smoke [model]        Tiny chat completion
 EOF
 }
 
@@ -226,6 +378,8 @@ main() {
     status) cmd_status "$@" ;;
     doctor) cmd_doctor "$@" ;;
     models) cmd_models "$@" ;;
+    set-model|set_model) cmd_set_model "$@" ;;
+    explain) cmd_explain "$@" ;;
     smoke) cmd_smoke "$@" ;;
     -h|--help|help|"") usage ;;
     *) echo "Unknown: $cmd" >&2; usage; exit 1 ;;
