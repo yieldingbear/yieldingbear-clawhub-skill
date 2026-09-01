@@ -5,7 +5,7 @@ set -euo pipefail
 
 SITE_URL="${YIELDINGBEAR_SITE_URL:-https://yieldingbear.com}"
 BASE_URL="${YIELDINGBEAR_BASE_URL:-${SITE_URL}/api/v1}"
-VERSION="2.0.0"
+VERSION="2.1.0"
 
 resolve_paths() {
   if [[ -n "${HERMES_HOME:-}" || -d "${HOME}/.hermes" ]]; then
