@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Yielding Bear — agent installer (2026.09.01b) — ClawHub skill bundle
+# Yielding Bear — agent installer (2.5.0) — ClawHub skill bundle
 # Usage: curl -fsSL https://yieldingbear.com/install.sh | bash
 #
 # Walkthrough:
 #   0) Account (signup + optional $10 off Pro × first 3 months via CLI offer)
 #   1) API key
 #   2) Plan fork: Pro | credits | free models
-#   3) Default model from live catalog (with $/1M)
-#   4) Smoke + next commands (yb.sh doctor / models / set-model)
+#   3) Routing mode: Auto-select (Grizzly) or Manual pin (+ YB recs)
+#   4) Smoke + next commands (yb.sh doctor / models / set-routing)
 #
 # No JSON dumps. Reads interactive input from /dev/tty when piped.
 
 set -euo pipefail
 
-VERSION="2026.09.01b"
+VERSION="2.5.0"
 BASE_URL="${YIELDINGBEAR_BASE_URL:-https://yieldingbear.com/api/v1}"
 SITE_URL="${YIELDINGBEAR_SITE_URL:-https://yieldingbear.com}"
 DASHBOARD_URL="${SITE_URL}/dashboard?tab=developer"
@@ -135,7 +135,7 @@ say ""
 # ── Step 1 — API key ───────────────────────────────────────────────────────
 say "${BOLD}Step 1/4 — API key${RESET}"
 say "Create/copy key: ${CYAN}${DASHBOARD_URL}${RESET}"
-api_key="${YIELDINGBEAR_API_KEY:-}"
+api_key="${YIELDINGBEAR_API_KEY:-${YB_API_KEY:-}}"
 
 if [[ -z "$api_key" && -s "$KEY_FILE" ]]; then
   api_key="$(tr -d '[:space:]' < "$KEY_FILE" 2>/dev/null || true)"
@@ -145,7 +145,7 @@ if [[ -z "$api_key" && -s "$KEY_FILE" ]]; then
 fi
 
 if [[ -z "$api_key" ]]; then
-  printf '%b' "Paste API key (yb_live_sk_...): "
+  printf '%b' "Paste API key (grizzly_live_sk_... or yb_live_sk_...): "
   read_tty api_key -s
   echo
   api_key="$(printf '%s' "$api_key" | tr -d '[:space:]')"
@@ -154,8 +154,8 @@ fi
 if [[ -z "$api_key" ]]; then
   die "No API key. Create one at ${DASHBOARD_URL}"
 fi
-if [[ "$api_key" != yb_live_sk_* ]]; then
-  die "Key must start with yb_live_sk_"
+if [[ "$api_key" != grizzly_live_sk_* && "$api_key" != yb_live_sk_* && "$api_key" != yb_test_sk_* ]]; then
+  die "Key must start with grizzly_live_sk_ (or legacy yb_live_sk_)"
 fi
 
 say "${DIM}Checking key…${RESET}"
@@ -234,20 +234,88 @@ case "$plan_choice" in
 esac
 say ""
 
-# ── Step 3 — Model ─────────────────────────────────────────────────────────
-say "${BOLD}Step 3/4 — Default model (live library)${RESET}"
-say "${DIM}Fetching catalog + live \$/1M…${RESET}"
+# ── Step 3 — Routing mode + model ─────────────────────────────────────────
+say "${BOLD}Step 3/4 — Routing mode${RESET}"
+say "  ${DIM}Same toggle as Dashboard → Active Model.${RESET}"
+say ""
 
-models_body="$(
-  curl -sS -H "Accept: application/json" \
-    "${SITE_URL}/api/v1/models" 2>/dev/null || true
-)"
+# Live recommendations (public) — same source as dashboard chips
+REC_HIGH="" REC_MID="" REC_LOW="" REC_ROUTER="yieldingbear/grizzly-1.0g-pro"
+rec_json="$(curl -sS -m 15 -H 'Accept: application/json' \
+  "${SITE_URL}/api/public/routing-recommendations" 2>/dev/null || true)"
+if command -v python3 >/dev/null 2>&1 && [[ -n "$rec_json" ]]; then
+  eval "$(
+    printf '%s' "$rec_json" | python3 -c '
+import json,sys,shlex
+try:
+ j=json.load(sys.stdin)
+except Exception:
+ sys.exit(0)
+def q(s): return shlex.quote(str(s or ""))
+print("REC_HIGH="+q(j.get("high")))
+print("REC_MID="+q(j.get("mid")))
+print("REC_LOW="+q(j.get("low")))
+print("REC_ROUTER="+q(j.get("router_model") or "yieldingbear/grizzly-1.0g-pro"))
+' 2>/dev/null || true
+  )"
+fi
+[[ -z "$REC_HIGH" ]] && REC_HIGH="anthropic/claude-sonnet-4.6"
+[[ -z "$REC_MID" ]] && REC_MID="google/gemini-2.5-flash"
+[[ -z "$REC_LOW" ]] && REC_LOW="nvidia/nemotron-3-nano-30b"
+[[ -z "$REC_ROUTER" ]] && REC_ROUTER="yieldingbear/grizzly-1.0g-pro"
 
-MENU_FILE="$(mktemp -t yb-models.XXXXXX 2>/dev/null || echo /tmp/yb-models-$$.txt)"
-trap 'rm -f "$MENU_FILE" 2>/dev/null || true' EXIT
+say "  Yielding Bear recommendations (live):"
+say "    high  ${CYAN}${REC_HIGH}${RESET}"
+say "    mid   ${CYAN}${REC_MID}${RESET}"
+say "    free  ${CYAN}${REC_LOW}${RESET}  ${DIM}(true \$0 when is_free)${RESET}"
+say ""
+say "  1) ${BOLD}Auto-select${RESET}  ${DIM}recommended — Grizzly classifies high/mid/free per prompt${RESET}"
+say "  2) ${BOLD}Manual${RESET}       ${DIM}pin a catalog model (YB chips + full library)${RESET}"
+say ""
 
-build_menu_py() {
-  python3 - "$MENU_FILE" <<'PY' || return 1
+ROUTING_MODE="auto"
+chosen_model="$REC_ROUTER"
+if [[ -n "${YIELDINGBEAR_ROUTING_MODE:-}" ]]; then
+  case "$(printf '%s' "$YIELDINGBEAR_ROUTING_MODE" | tr 'A-Z' 'a-z')" in
+    manual|man|m) ROUTING_MODE="manual" ;;
+    *) ROUTING_MODE="auto" ;;
+  esac
+  if [[ -n "${YIELDINGBEAR_DEFAULT_MODEL:-}" ]]; then
+    chosen_model="$YIELDINGBEAR_DEFAULT_MODEL"
+  fi
+  if [[ "$ROUTING_MODE" == "auto" ]]; then
+    chosen_model="$REC_ROUTER"
+  fi
+  ok "Non-interactive routing_mode=${ROUTING_MODE} model=${chosen_model}"
+else
+  printf '%b' "Routing mode ${DIM}[1=auto]${RESET}: "
+  rm_choice=""
+  read_tty rm_choice
+  rm_choice="$(printf '%s' "$rm_choice" | tr -d '[:space:]' | tr 'A-Z' 'a-z')"
+  case "$rm_choice" in
+    2|m|manual|man) ROUTING_MODE="manual" ;;
+    *) ROUTING_MODE="auto" ;;
+  esac
+fi
+
+if [[ "$ROUTING_MODE" == "auto" ]]; then
+  chosen_model="$REC_ROUTER"
+  ok "Auto-select → ${BOLD}${chosen_model}${RESET} (tier=auto, YB tier table)"
+else
+  say ""
+  say "${BOLD}Manual — pick default model${RESET}"
+  say "${DIM}Fetching catalog + live \$/1M…${RESET}"
+
+  models_body="$(
+    curl -sS -H "Accept: application/json" \
+      "${SITE_URL}/api/v1/models" 2>/dev/null || true
+  )"
+
+  MENU_FILE="$(mktemp -t yb-models.XXXXXX 2>/dev/null || echo /tmp/yb-models-$$.txt)"
+  trap 'rm -f "$MENU_FILE" 2>/dev/null || true' EXIT
+
+  build_menu_py() {
+    python3 - "$MENU_FILE" <<'PY' || return 1
 import json, sys
 out_path = sys.argv[1]
 raw = sys.stdin.read()
@@ -267,7 +335,6 @@ def score(m):
 
 rows = [m for m in rows if m.get("id")]
 rows.sort(key=score)
-# Prefer: routers + free + a few paid anchors
 picked = []
 for m in rows:
     mid = str(m.get("id") or "")
@@ -295,90 +362,72 @@ with open(out_path, "w", encoding="utf-8") as f:
             out = float(pr.get("output_per_mtok_usd") or 0)
         except Exception:
             inp = out = 0.0
-        if free == "free" or (inp == 0 and out == 0 and virt):
-            price = "\$0" if free == "free" else "routed"
+        if free == "free":
+            price = "$0"
+        elif virt:
+            price = "routed"
         else:
-            price = f"\${inp:g}/\${out:g} per 1M"
+            price = f"${inp:g}/${out:g} per 1M"
         tag = free if not virt else f"{virt},{free}"
         f.write(f"{mid}\t{tag}\t{price}\n")
 print(len(picked))
 PY
-}
+  }
 
-menu_count=0
-if command -v python3 >/dev/null 2>&1 && [[ -n "$models_body" ]]; then
-  menu_count="$(printf '%s' "$models_body" | build_menu_py || echo 0)"
-fi
-
-chosen_model="$DEFAULT_MODEL"
-if [[ "${menu_count:-0}" =~ ^[0-9]+$ ]] && [[ "$menu_count" -gt 0 && -s "$MENU_FILE" ]]; then
-  i=0
-  while IFS=$'\t' read -r mid tag price; do
-    i=$((i + 1))
-    mark=""
-    if [[ "$mid" == "$DEFAULT_MODEL" ]]; then
-      mark=" ${GREEN}(default router)${RESET}"
-    fi
-    printf '  %2d) %s  %b%s%b  %b%s%b%b\n' \
-      "$i" "$mid" "${DIM}" "[$tag]" "${RESET}" "${CYAN}" "$price" "${RESET}" "$mark"
-  done < "$MENU_FILE"
-  say "   0) keep default  ${BOLD}${DEFAULT_MODEL}${RESET}"
-  say "   f) first free model in list"
-  say "   c) type a custom model id"
-  say ""
-  printf '%b' "Pick model number ${DIM}[0]${RESET}: "
-  choice=""
-  read_tty choice
-  choice="$(printf '%s' "$choice" | tr -d '[:space:]')"
-
-  case "$choice" in
-    ""|0|d|D)
-      chosen_model="$DEFAULT_MODEL"
-      ;;
-    f|F)
-      free_line="$(awk -F'\t' '$2 ~ /free/ {print; exit}' "$MENU_FILE" 2>/dev/null || true)"
-      if [[ -n "$free_line" ]]; then
-        chosen_model="${free_line%%$'\t'*}"
-      else
-        chosen_model="$FREE_FALLBACK"
-      fi
-      ;;
-    c|C)
-      printf '%b' "model id: "
-      custom=""
-      read_tty custom
-      custom="$(printf '%s' "$custom" | tr -d '[:space:]')"
-      if [[ -n "$custom" ]]; then
-        chosen_model="$custom"
-      fi
-      ;;
-    *)
-      if [[ "$choice" =~ ^[0-9]+$ ]]; then
-        line="$(sed -n "${choice}p" "$MENU_FILE" 2>/dev/null || true)"
-        mid="${line%%$'\t'*}"
-        if [[ -n "$mid" ]]; then
-          chosen_model="$mid"
-        else
-          warn "Invalid pick — using default."
-          chosen_model="$DEFAULT_MODEL"
-        fi
-      else
-        chosen_model="$choice"
-      fi
-      ;;
-  esac
-else
-  say "${DIM}Catalog unavailable offline — using ${DEFAULT_MODEL}${RESET}"
-  printf '%b' "Model id ${DIM}[${DEFAULT_MODEL}]${RESET}: "
-  typed=""
-  read_tty typed
-  typed="$(printf '%s' "$typed" | tr -d '[:space:]')"
-  if [[ -n "$typed" ]]; then
-    chosen_model="$typed"
+  menu_count=0
+  if command -v python3 >/dev/null 2>&1 && [[ -n "$models_body" ]]; then
+    menu_count="$(printf '%s' "$models_body" | build_menu_py || echo 0)"
   fi
-fi
 
-ok "Model: ${BOLD}${chosen_model}${RESET}"
+  chosen_model="$REC_ROUTER"
+  say "  Recommended pins:"
+  say "    r) router  ${REC_ROUTER}"
+  say "    h) high    ${REC_HIGH}"
+  say "    m) mid     ${REC_MID}"
+  say "    l) free    ${REC_LOW}"
+  if [[ "${menu_count:-0}" =~ ^[0-9]+$ ]] && [[ "$menu_count" -gt 0 && -s "$MENU_FILE" ]]; then
+    i=0
+    while IFS=$'\t' read -r mid tag price; do
+      i=$((i + 1))
+      printf '  %2d) %s  %b%s%b  %b%s%b\n' \
+        "$i" "$mid" "${DIM}" "[$tag]" "${RESET}" "${CYAN}" "$price" "${RESET}"
+    done < "$MENU_FILE"
+    say "   c) type a custom model id"
+    say ""
+    printf '%b' "Pick ${DIM}[r=router]${RESET}: "
+    choice=""
+    read_tty choice
+    choice="$(printf '%s' "$choice" | tr -d '[:space:]')"
+    case "$choice" in
+      ""|r|R|0) chosen_model="$REC_ROUTER" ;;
+      h|H) chosen_model="$REC_HIGH" ;;
+      m|M) chosen_model="$REC_MID" ;;
+      l|L|f|F) chosen_model="$REC_LOW" ;;
+      c|C)
+        printf '%b' "model id: "
+        custom=""; read_tty custom
+        custom="$(printf '%s' "$custom" | tr -d '[:space:]')"
+        [[ -n "$custom" ]] && chosen_model="$custom"
+        ;;
+      *)
+        if [[ "$choice" =~ ^[0-9]+$ ]]; then
+          line="$(sed -n "${choice}p" "$MENU_FILE" 2>/dev/null || true)"
+          mid="${line%%$'\t'*}"
+          [[ -n "$mid" ]] && chosen_model="$mid"
+        elif [[ -n "$choice" ]]; then
+          chosen_model="$choice"
+        fi
+        ;;
+    esac
+  else
+    say "${DIM}Catalog offline — using recommendations only${RESET}"
+    printf '%b' "Model id ${DIM}[${REC_ROUTER}]${RESET}: "
+    typed=""; read_tty typed
+    typed="$(printf '%s' "$typed" | tr -d '[:space:]')"
+    [[ -n "$typed" ]] && chosen_model="$typed"
+  fi
+  ok "Manual → ${BOLD}${chosen_model}${RESET}"
+fi
 
 # ── Write config ───────────────────────────────────────────────────────────
 umask 077
@@ -386,8 +435,14 @@ cat > "$CONFIG_FILE" <<EOF
 {
   "version": "${VERSION}",
   "base_url": "${BASE_URL}",
+  "routing_mode": "${ROUTING_MODE}",
   "default_model": "${chosen_model}",
-  "fallback_models": ["yieldingbear/grizzly-1.0g-pro", "liquid/lfm-2.5-2.6b", "nvidia/nemotron-3-nano-30b"],
+  "fallback_models": ["${REC_ROUTER}", "${REC_LOW}", "liquid/lfm-2.5-2.6b"],
+  "recommended_tiers": {
+    "high": "${REC_HIGH}",
+    "mid": "${REC_MID}",
+    "low": "${REC_LOW}"
+  },
   "key_file": "${KEY_FILE}",
   "runtime": "${AGENT}",
   "signup_offer": "cli10x3"
@@ -400,9 +455,28 @@ cat > "$ENV_FILE" <<EOF
 export YIELDINGBEAR_API_KEY="\$(cat '${KEY_FILE}' 2>/dev/null)"
 export YIELDINGBEAR_BASE_URL="${BASE_URL}"
 export YIELDINGBEAR_DEFAULT_MODEL="${chosen_model}"
+export YIELDINGBEAR_ROUTING_MODE="${ROUTING_MODE}"
 export YIELDINGBEAR_SITE_URL="${SITE_URL}"
 EOF
+
 chmod 600 "$ENV_FILE" 2>/dev/null || true
+
+# Sync routing prefs to account (API key) so dashboard matches install
+if [[ -n "${api_key:-}" ]]; then
+  _default_for_api="$chosen_model"
+  _routing_tier='auto'
+  if [[ "$ROUTING_MODE" == "auto" ]]; then
+    _default_for_api="$REC_ROUTER"
+    _routing_tier='auto'
+  fi
+  curl -sS -m 20 -o /tmp/yb-pref-sync.json -w '' \
+    -X PUT "${SITE_URL}/api/user/default-model" \
+    -H "Authorization: Bearer ${api_key}" \
+    -H "Content-Type: application/json" \
+    -d "{\"active_default_model\":\"${_default_for_api}\",\"routing_tier\":\"${_routing_tier}\",\"tier_routes\":null,\"fallback_models\":[\"${REC_LOW}\"]}" \
+    >/dev/null 2>&1 || true
+fi
+
 
 # Optional SDK vendor
 SDK_DIR="${HOME}/.yieldingbear/lib"
@@ -465,16 +539,18 @@ hr
 say "${BOLD}Ready${RESET}"
 say "  key     ${KEY_FILE}"
 say "  config  ${CONFIG_FILE}"
+say "  mode    ${ROUTING_MODE}"
 say "  model   ${chosen_model}"
 say ""
 say "Load env:  ${CYAN}source ${ENV_FILE}${RESET}"
 if [[ -n "$YB_SH" ]]; then
   say "Doctor:    ${CYAN}bash ${YB_SH} doctor${RESET}"
   say "Models:    ${CYAN}bash ${YB_SH} models${RESET}"
+  say "Mode:      ${CYAN}bash ${YB_SH} set-routing auto|manual [model]${RESET}"
   say "Switch:    ${CYAN}bash ${YB_SH} set-model <id>${RESET}"
-  say "Routing:   ${CYAN}bash ${YB_SH} explain${RESET}"
+  say "Explain:   ${CYAN}bash ${YB_SH} explain${RESET}"
 else
-  say "Install skill CLI: ${CYAN}clawhub install yieldingbear${RESET}"
+  say "Install skill CLI: ${CYAN}clawhub install grizzly${RESET}"
   say "Then: bash ~/.openclaw/skills/yieldingbear/scripts/yb.sh doctor"
 fi
 say "Docs:      ${CYAN}${SITE_URL}/docs${RESET}"
