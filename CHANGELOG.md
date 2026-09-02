@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.5.0+ops — 2026-09-02 (same branch)
+
+### grizzly-ops always-on skill
+- New `grizzly-ops/` skill (`always: true` for OpenClaw metadata).
+- Imperative spend rules; no savings % claims.
+- `yb.sh spend`, `receipts`, `vk-bind` (VK mint blocked on API).
+- Example config `grizzly-ops.example.json` with burn-down thresholds.
+
+## 2.5.0 — 2026-09-02
+
+### Slug unification (repo ↔ live listing)
+- Skill name/slug **grizzly** (legacy docs alias: `yieldingbear`).
+- Install: `clawhub install grizzly` / `openclaw skills install @yieldingbear/grizzly`.
+- Keys: canonical `grizzly_live_sk_`; legacy `yb_live_sk_` / `yb_test_sk_` still accepted.
+- Env: `YIELDINGBEAR_API_KEY` canonical; `YB_API_KEY` legacy alias in `yb.sh` + installer.
+- Base URL only `https://yieldingbear.com/api/v1`.
+- Default routing **auto** → `yieldingbear/grizzly-1.0g-pro`.
+- `yb.sh set-routing auto|manual`; `set-model` remains manual pin.
+- `yb.sh why` alias of explain; live high/mid/free ids + $/1M from `/api/health/grizzly-routing` when present (no invented prices).
+- Doctor: models, routing-recommendations, grizzly-routing health, fake `(Free)` warn, free-model smoke.
+- Models list prefers `yieldingbear.data` live catalog (`is_free`, pricing).
+- `sync_server_prefs` now sends actual routing mode (auto|manual), not hard-coded auto.
+- No savings-percentage claims in skill, CLI, or commit messages.
+
+## 2.4.x — live ClawHub only (not fully in git)
+Live listing advanced past repo 2.2.0 with set-routing + grizzly slug. This release re-syncs git to that identity and tightens doctor/why.
+
 ## 2.2.0 — 2026-09-01
 
 ### Added
