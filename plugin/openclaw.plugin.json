@@ -1,0 +1,30 @@
+{
+  "id": "grizzly-ops",
+  "name": "Grizzly Ops",
+  "description": "Route OpenClaw turns through Yielding Bear Auto / high|mid|free rails via before_model_resolve.",
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": ["hook"]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": { "type": "boolean", "default": true },
+      "defaultModel": {
+        "type": "string",
+        "default": "yieldingbear/grizzly-1.0g-pro"
+      },
+      "providerOverride": {
+        "type": "string",
+        "default": "yieldingbear"
+      },
+      "opsConfigPath": { "type": "string" },
+      "healthUrl": {
+        "type": "string",
+        "default": "https://yieldingbear.com/api/health/grizzly-routing"
+      },
+      "healthCacheMs": { "type": "number", "default": 60000 }
+    }
+  }
+}
