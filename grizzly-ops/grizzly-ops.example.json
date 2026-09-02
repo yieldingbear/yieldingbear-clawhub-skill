@@ -1,0 +1,30 @@
+{
+  "version": "1.0.0",
+  "default_model": "yieldingbear/grizzly-1.0g-pro",
+  "routing_mode": "auto",
+  "skill_rails": {
+    "github": "high",
+    "code-review": "high",
+    "security": "high",
+    "architecture": "high",
+    "summarize": "free",
+    "notify": "free",
+    "gog": "free",
+    "triage": "free",
+    "format": "free",
+    "search": "mid",
+    "browser": "mid"
+  },
+  "burn_down": {
+    "warn_usd": 1.0,
+    "demote_high_to_mid_usd": 3.0,
+    "demote_mid_to_free_usd": 8.0,
+    "hard_stop_paid_usd": 15.0
+  },
+  "promote_on_correction_days": 7,
+  "speculative_escalate": false,
+  "daily_usd_cap": null,
+  "vk_bindings": {},
+  "receipts_path": null,
+  "notes": "receipts_path null → <runtime>/config/yieldingbear/receipts.jsonl. vk_bindings is config-only until virtual-key API is documented."
+}
