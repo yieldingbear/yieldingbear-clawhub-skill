@@ -1,135 +1,105 @@
 ---
-name: yieldingbear
-description: "One API. 100+ LLMs. Smart Routing. Wire OpenClaw/Hermes to Yielding Bear — Grizzly auto-routes high/mid/free, free tier, doctor CLI, $10×3 Pro signup offer. Start at https://yieldingbear.com"
+name: Grizzly
+description: "Installer for Yielding Bear: one API key, Auto routing via yieldingbear/grizzly-1.0g-pro, doctor + smoke. ClawHub slug grizzly."
+version: 2.5.0
+author: Yielding Bear
+license: MIT
 homepage: https://yieldingbear.com
 metadata:
-  author: Yielding Bear LLC
-  version: "2.2.0"
   openclaw:
     requires:
-      bins: ["curl", "bash"]
+      env:
+        - YIELDINGBEAR_API_KEY
     primaryEnv: YIELDINGBEAR_API_KEY
-    emoji: "🐻"
+    install:
+      - kind: script
+        script: scripts/install.sh
 ---
 
-# Yielding Bear
+# Grizzly (Yielding Bear installer)
 
-**One API. 100+ LLMs. Smart Routing.**  
-Built for builders, agents, and SMBs — cheap when it’s easy, frontier when it’s not.
+Wire one key into Hermes or OpenClaw, default **Auto** routing through `yieldingbear/grizzly-1.0g-pro`, and verify with doctor/smoke.
 
-→ **https://yieldingbear.com**
+> Public installer skill only. Cost loop = optional **grizzly-ops** skill + OpenClaw **plugin/** (`before_model_resolve`). Do not replace this installer with a plugin.
 
-## Why Yielding Bear
-
-| | |
-|--|--|
-| **One key** | Drop-in OpenAI-compatible base URL — GPT, Claude, Gemini, Llama, and more |
-| **Smart routing** | `yieldingbear/grizzly-1.0g-pro` classifies prompt need → **high / mid / free** with live $/1M awareness |
-| **Cache + optimize** | Server semantic cache + prompt-cache flags; optional bandit self-improve on outcomes (when enabled) |
-| **Real savings** | Up to ~60–80% vs retail (illustrative) — right model every call |
-| **Honest free** | True $0 upstream free models only — no fake “free” paid rows |
-| **Agents-first** | Free key → usage; **Grizzly Pro $99** when you scale |
-| **Dashboard** | Keys, spend, models — [developers](https://yieldingbear.com/dashboard?tab=developer) |
-
-## Why this skill
-
-| | |
-|--|--|
-| **1-command install** | Hermes, OpenClaw, or shell — keys mode 600, never in git |
-| **Full walkthrough** | Signup → Pro **or** credits **or** free → live model library → switch default |
-| **CLI Pro offer** | **$10 off first 3 months** ($89→$99) via `/offer/cli10x3` (not stacked with referral) |
-| **Doctor CLI** | `yb.sh doctor` / `models` / `set-model` / `explain` / `smoke` |
-| **Live catalog** | Free tags + $/1M from live API |
-| **Updatable** | `clawhub update yieldingbear` |
-
-## Get started (2 minutes)
+## Install
 
 ```bash
-# One-liner (site install — same scripts as skill)
-curl -fsSL https://yieldingbear.com/install.sh | bash
+# ClawHub
+clawhub install grizzly
+# or OpenClaw
+openclaw skills install @yieldingbear/grizzly
 
-# Or ClawHub
-clawhub install yieldingbear
-bash ~/.openclaw/skills/yieldingbear/scripts/install.sh
+# Legacy alias (docs only): clawhub install yieldingbear
+bash scripts/install.sh
 ```
 
-Installer walks you through:
-
-1. **Account** — opens signup with CLI offer cookie  
-2. **API key** — paste `yb_live_sk_…` (validated)  
-3. **Plan** — Pro ($10×3) | credits | stay free  
-4. **Model** — live library with $/1M; switch anytime  
+Env / flags:
 
 ```bash
-bash ~/.openclaw/skills/yieldingbear/scripts/yb.sh doctor
-bash ~/.openclaw/skills/yieldingbear/scripts/yb.sh models --free
-bash ~/.openclaw/skills/yieldingbear/scripts/yb.sh set-model liquid/lfm-2.5-2.6b
-bash ~/.openclaw/skills/yieldingbear/scripts/yb.sh explain
-bash ~/.openclaw/skills/yieldingbear/scripts/yb.sh smoke
+YIELDINGBEAR_API_KEY=grizzly_live_sk_… bash scripts/install.sh
+# legacy env still accepted by yb.sh: YB_API_KEY
+# non-interactive:
+YIELDINGBEAR_API_KEY=… YB_ROUTING_MODE=auto bash scripts/install.sh --yes
 ```
 
-Non-interactive:
+Key prefixes accepted: `grizzly_live_sk_` (canonical), `yb_live_sk_` / `yb_test_sk_` (legacy).
+
+## Canonical endpoints
+
+| Use | URL |
+|-----|-----|
+| OpenAI-compatible API | `https://yieldingbear.com/api/v1` |
+| Models (live catalog) | `GET /api/v1/models` → prefer `yieldingbear.data` |
+| Routing health (prices) | `GET /api/health/grizzly-routing` |
+| Public rail recs | `GET /api/public/routing-recommendations` |
+
+Never use `api.yieldingbear.com` or bare `/v1`.
+
+## Defaults
+
+| Setting | Value |
+|---------|--------|
+| Routing mode | **auto** |
+| Default model | `yieldingbear/grizzly-1.0g-pro` |
+| Manual pin | `yb.sh set-model <catalog-id>` or `yb.sh set-routing manual [id]` |
+
+Installer prompts Auto vs Manual; default Auto.
+
+## CLI (`scripts/yb.sh`)
 
 ```bash
-YIELDINGBEAR_API_KEY=yb_live_sk_… \
-YIELDINGBEAR_DEFAULT_MODEL=yieldingbear/grizzly-1.0g-pro \
-  bash scripts/install.sh
+yb.sh status
+yb.sh doctor          # models + routing health + free smoke + fake-Free warn
+yb.sh models [--free|--paid|--routers]   # live catalog only
+yb.sh set-routing auto|manual [model_id]
+yb.sh set-model <id>  # manual pin; router id → auto
+yb.sh why | explain   # live high/mid/free ids + $/1M when health returns them
+yb.sh smoke [model]   # prefers a live free catalog id when possible
 ```
 
-## Wire once
+## Secrets
 
-| | |
-|--|--|
-| Base URL | `https://yieldingbear.com/api/v1` |
-| Key | `yb_live_sk_…` (customer key only — never platform secrets) |
-| Default router | `yieldingbear/grizzly-1.0g-pro` |
+Customer keys only under runtime config, mode 600:
 
-```python
-from openai import OpenAI
-client = OpenAI(
-    api_key="yb_live_sk_…",  # from dashboard
-    base_url="https://yieldingbear.com/api/v1",
-)
-client.chat.completions.create(
-    model="yieldingbear/grizzly-1.0g-pro",
-    messages=[{"role": "user", "content": "hi"}],
-)
-```
+- `~/.hermes/config/yieldingbear/secrets/`
+- `~/.openclaw/config/yieldingbear/secrets/`
+- `~/.config/yieldingbear/secrets/`
 
-## Offers (do not stack)
+Never commit keys. Env: `YIELDINGBEAR_API_KEY` (canonical), `YB_API_KEY` (legacy).
 
-| Path | Deal |
-|--|--|
-| **CLI / install / ClawHub** | $10 off Pro × first **3 months** ($89 then $99) — `/offer/cli10x3` |
-| **Referral (bound invitee)** | $20 off **first** Pro month (~$79 once); referrer gets $10 credits on paid Pro |
-| Priority | Referral wins if both eligible; never both coupons on one Checkout |
+## Product facts (do not invent)
 
-## Routing (what’s real)
+- One key; 100+ catalog; Auto high/mid/free via `yieldingbear/grizzly-1.0g-pro`.
+- Honest free = true $0 upstream only — from live catalog, never a hardcoded free list.
+- Credits never expire. Grizzly Pro $99/mo; CLI offer $10 off first 3 months (`/offer/cli10x3`). Referral $20 first month does not stack with CLI offer.
+- Free plan: 60 RPM. Heavy agents may 429 — not unlimited.
+- Do not claim savings percentages, ARR, user counts, raise amounts, or SOC2.
 
-- Grizzly classifies reasoning need → high / mid / low  
-- Pro defaults: frontier high, fast mid, free/active low (soft-fail → mid)  
-- Billing uses live input/output $/1M  
-- Caching + bandit self-improve are **server flags** — `yb.sh doctor` / `explain` report health when available  
-- Not a promise of RL-perfect routing on every account  
+## Optional cost loop
 
-## Links
+1. Install this skill (installer).
+2. Install **grizzly-ops** (always-on spend rules) when available in-repo / ClawHub.
+3. OpenClaw only: `openclaw plugins install --link ./plugin` + gateway restart for real `before_model_resolve` routing. Hermes has no model-resolve hook — default model + ops skill is the path.
 
-- Site: https://yieldingbear.com  
-- How it works: https://yieldingbear.com/how-it-works  
-- Docs: https://yieldingbear.com/docs  
-- Pricing / Pro: https://yieldingbear.com/pricing  
-- Keys: https://yieldingbear.com/dashboard?tab=developer  
-- ClawHub: https://clawhub.ai/yieldingbear/yieldingbear  
-- Source: https://github.com/yieldingbear/yieldingbear-clawhub-skill  
-
-## Security (hard rules)
-
-- **Never** commit real `yb_live_sk_*`, OpenRouter, Supabase service role, LiteLLM, or ClawHub tokens.
-- Customer keys live only in `~/.hermes|openclaw|config/yieldingbear/secrets/` (mode 600).
-- Free path = true free upstream only. Paid models require balance.
-
-## Update
-
-```bash
-clawhub update yieldingbear
-```
+**Do not clawhub publish until Laurence explicitly says "publish."**
