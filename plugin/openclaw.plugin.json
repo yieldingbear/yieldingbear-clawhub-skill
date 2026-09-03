@@ -1,6 +1,6 @@
 {
-  "id": "grizzly-ops",
-  "name": "Grizzly Ops",
+  "id": "yieldingbear",
+  "name": "Yielding Bear",
   "description": "Route OpenClaw turns through Yielding Bear Auto / high|mid|free rails via before_model_resolve.",
   "activation": {
     "onStartup": true,

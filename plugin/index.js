@@ -1,5 +1,5 @@
 /**
- * Grizzly Ops OpenClaw plugin — before_model_resolve companion.
+ * Yielding Bear OpenClaw plugin — before_model_resolve companion.
  * Fail closed to yieldingbear/grizzly-1.0g-pro on errors.
  */
 import fs from "node:fs";
@@ -109,8 +109,8 @@ function dailyCapForceFree(ops, spendToday) {
 }
 
 export default {
-  id: "grizzly-ops",
-  name: "Grizzly Ops",
+  id: "yieldingbear",
+  name: "Yielding Bear",
   description:
     "before_model_resolve → Yielding Bear Auto / high|mid|free (fail closed to Auto router)",
   register(api) {

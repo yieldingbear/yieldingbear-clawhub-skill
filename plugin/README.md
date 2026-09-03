@@ -1,15 +1,20 @@
-# Grizzly Ops — OpenClaw plugin (companion)
+# Yielding Bear — OpenClaw plugin
 
-Optional companion to the **grizzly** installer skill and **grizzly-ops** always-on skill.
+Routes OpenClaw turns through Yielding Bear Auto (`yieldingbear/grizzly-1.0g-pro`) and optional high / mid / free rails via `before_model_resolve`.
 
-Hooks `before_model_resolve` so routing actually happens (skills alone cannot sit in the turn path).
-
-## Install
+## Install (ClawHub)
 
 ```bash
-# from this repo
+openclaw plugins install clawhub:@yieldingbear/yieldingbear
+openclaw plugins enable yieldingbear
+openclaw gateway restart
+```
+
+## Local link (dev)
+
+```bash
 openclaw plugins install --link ./plugin --force
-openclaw plugins enable grizzly-ops
+openclaw plugins enable yieldingbear
 ```
 
 In `openclaw.json`:
@@ -18,20 +23,13 @@ In `openclaw.json`:
 {
   "plugins": {
     "entries": {
-      "grizzly-ops": {
+      "yieldingbear": {
         "enabled": true,
         "hooks": { "allowConversationAccess": true }
       }
     }
   }
 }
-```
-
-Then:
-
-```bash
-openclaw gateway restart
-openclaw plugins inspect grizzly-ops --runtime --json
 ```
 
 ## Behavior
@@ -41,9 +39,11 @@ openclaw plugins inspect grizzly-ops --runtime --json
 - Fail closed to **Auto router**, never bare Opus / `claude-*` without provider prefix.
 - Decisions: `~/.openclaw/config/yieldingbear/decisions.jsonl`
 
-## Hermes
+## Product
 
-Hermes has no equivalent model-resolve hook. Use installer default model + `grizzly-ops` skill instructions.
+- Gateway: `https://yieldingbear.com/api/v1`
+- Keys: `YIELDINGBEAR_API_KEY` (`grizzly_live_sk_…` / legacy `yb_live_sk_…`)
+- Dashboard: https://yieldingbear.com/dashboard
 
 ## Tests
 
